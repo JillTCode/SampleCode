@@ -30,8 +30,8 @@ WHERE Orders.CustomerID IN
 	                     MAX(A2.AccountOwnerEffectiveDate) AS RecentEffectiveDate
 				  FROM dbo.AccountOwner AS A2
 				  GROUP BY A2.CustomerID) AS A3
-		ON A1.CustomerID = A3.CustomerID
-		  AND A1.AccountOwnerEffectiveDate = A3.RecentEffectiveDate
+	    ON A1.CustomerID = A3.CustomerID
+	      AND A1.AccountOwnerEffectiveDate = A3.RecentEffectiveDate
 	 WHERE A1.SalesPerson = @SalesPerson)
 
 
@@ -49,7 +49,7 @@ DROP TABLE #Temp3_RefOrderWithKey
 
 SELECT *,
        (RIGHT(REPLICATE('0',6)+CAST(SplitOrder AS VARCHAR(6)),6) + CAST(CAST(SplitDate AS INT) AS VARCHAR) )AS Key_ChildOrder,
-	   (RIGHT(REPLICATE('0',6)+CAST(OriginalOrder AS VARCHAR(6)),6) + CAST(CAST(SplitDate AS INT) AS VARCHAR) )AS Key_ParentOrder
+       (RIGHT(REPLICATE('0',6)+CAST(OriginalOrder AS VARCHAR(6)),6) + CAST(CAST(SplitDate AS INT) AS VARCHAR) )AS Key_ParentOrder
 INTO #Temp3_RefOrderWithKey
 FROM dbo.OrderReference
 
@@ -71,8 +71,7 @@ IF OBJECT_ID ('tempdb..#Temp5_CTE ') IS NOT NULL
 DROP TABLE #Temp5_CTE 
 
 ; WITH CTE AS (
-SELECT SplitOrder,OrderDate, SalesAmount, CustomerID, Key_SplitOrder,Key_ParentOrder,
-	   Key_SplitOrder AS Key_RootOrder
+SELECT SplitOrder,OrderDate, SalesAmount, CustomerID, Key_SplitOrder,Key_ParentOrder, Key_SplitOrder AS Key_RootOrder
 FROM #Temp4_OrderWithRootIndicator
 WHERE RootIndicator = 1
 
@@ -103,8 +102,7 @@ SELECT CustomerID,
        Key_RootOrder, 
        SUM(SalesAmount) AS RootOrderSales,
 	   (SELECT C1.OrderDate FROM #Temp5_CTE AS C1
-	    WHERE C1.Key_SplitOrder = #Temp5_CTE.Key_RootOrder
-	    ) AS RootOrderDate  
+	    WHERE C1.Key_SplitOrder = #Temp5_CTE.Key_RootOrder) AS RootOrderDate  
 INTO #Temp6_RootLevel
 FROM #Temp5_CTE 
 GROUP BY Key_RootOrder,CustomerID
