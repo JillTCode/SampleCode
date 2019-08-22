@@ -79,11 +79,11 @@ UNION ALL
 
 SELECT #Temp4_OrderWithRootIndicator.SplitOrder,
        #Temp4_OrderWithRootIndicator.OrderDate,
-	   #Temp4_OrderWithRootIndicator.SalesAmount,
-	   #Temp4_OrderWithRootIndicator.CustomerID,
-	   #Temp4_OrderWithRootIndicator.Key_SplitOrder,
-	   #Temp4_OrderWithRootIndicator.Key_ParentOrder,
-	   CTE.Key_RootOrder
+       #Temp4_OrderWithRootIndicator.SalesAmount,
+       #Temp4_OrderWithRootIndicator.CustomerID,
+       #Temp4_OrderWithRootIndicator.Key_SplitOrder,
+       #Temp4_OrderWithRootIndicator.Key_ParentOrder,
+       CTE.Key_RootOrder
 FROM #Temp4_OrderWithRootIndicator 
   INNER JOIN CTE 
    ON #Temp4_OrderWithRootIndicator.Key_ParentOrder = CTE.Key_SplitOrder
