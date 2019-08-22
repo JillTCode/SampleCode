@@ -1,7 +1,6 @@
-/*The purpose of this stored procedure is to find the order size distribution of the first root orders of all the customers that currently belong to the specific sales person.
+/*The purpose of this stored procedure is to find the first root orders of all the customers that currently belong to a specific sales person.
 
-  The challenge is an order number could be reused every 6 months, 
-  there is no unique identifier for an order,
+  The challenge is an order number could be reused every 6 months, there is no unique identifier for an order,
   and the order information in the database are at split orders level.
 
   The solution is to create an uniuqe key for an order by combining order number and order date, 
@@ -16,88 +15,107 @@ CREATE PROC spFirstRootOrder
   @SalesPerson AS VARCHAR(5)
 AS
 
-/*1. Find all orders of the customers that currently belong to a specific sales person.*/
+
+/*1.Find orders of customers who currently belong the sales perosn*/
+IF OBJECT_ID ('tempdb..#Temp1_OrdersOfSalesPerson') IS NOT NULL
+DROP TABLE #Temp1_OrdersOfSalesPerson
+
 SELECT * 
 INTO #Temp1_OrdersOfSalesPerson
-FROM [dbo].[Orders]
-WHERE [CustomerID] IN 
-  (SELECT [dbo].[AccountOwner].CustomerID 
-   FROM [dbo].[AccountOwner]
-   WHERE 
-       [AccountOwnerEffectiveDate]=(SELECT MAX([AccountOwnerEffectiveDate]) FROM [dbo].[AccountOwner])
-	 AND SalesPerson=@SalesPerson)
+FROM dbo.Orders
+WHERE Orders.CustomerID IN 
+	(SELECT A1.CustomerID
+	 FROM dbo.AccountOwner AS A1
+	  INNER JOIN (SELECT A2.CustomerID,
+	                     MAX(A2.AccountOwnerEffectiveDate) AS RecentEffectiveDate
+				  FROM dbo.AccountOwner AS A2
+				  GROUP BY A2.CustomerID) AS A3
+		ON A1.CustomerID = A3.CustomerID
+		  AND A1.AccountOwnerEffectiveDate = A3.RecentEffectiveDate
+	 WHERE A1.SalesPerson = @SalesPerson)
 
 
-/*2. Create key for orders*/
+/*2. Create an unique key for orders*/
+IF OBJECT_ID ('tempdb..#Temp2_SplitOrderWithKey') IS NOT NULL
+DROP TABLE #Temp2_SplitOrderWithKey
+
 SELECT *, 
-       SplitOrder + CAST(CAST([OrderDate] AS INT)AS VARCHAR) AS OrderKey_AnyOrder
-INTO #Temp2_AnyOrderWithKey
+       SplitOrder + CAST(CAST(OrderDate AS INT)AS VARCHAR) AS Key_SplitOrder
+INTO #Temp2_SplitOrderWithKey
 FROM #Temp1_OrdersOfSalesPerson
 
+IF OBJECT_ID ('tempdb..#Temp3_RefOrderWithKey') IS NOT NULL
+DROP TABLE #Temp3_RefOrderWithKey
 
 SELECT *,
-       (RIGHT(REPLICATE('0',6)+CAST(SplitOrder AS VARCHAR(6)),6) + CAST(CAST([SplitDate] AS INT)AS VARCHAR) )AS OrderKey_ChildOrder,
-	   (RIGHT(REPLICATE('0',6)+CAST(OriginalOrder AS VARCHAR(6)),6) + CAST(CAST([SplitDate] AS INT)AS VARCHAR) )AS OrderKey_ParentOrder
-INTO #Temp3_ChildOrderWithKey
-FROM [dbo].[OrderReference]
+       (RIGHT(REPLICATE('0',6)+CAST(SplitOrder AS VARCHAR(6)),6) + CAST(CAST(SplitDate AS INT) AS VARCHAR) )AS Key_ChildOrder,
+	   (RIGHT(REPLICATE('0',6)+CAST(OriginalOrder AS VARCHAR(6)),6) + CAST(CAST(SplitDate AS INT) AS VARCHAR) )AS Key_ParentOrder
+INTO #Temp3_RefOrderWithKey
+FROM dbo.OrderReference
 
 
+/*3. Identify root order numbers*/
+IF OBJECT_ID ('tempdb..#Temp4_OrderWithRootIndicator') IS NOT NULL
+DROP TABLE #Temp4_OrderWithRootIndicator
 
-/*3. Create an unique key for orders*/
-SELECT #Temp2_AnyOrderWithKey.* ,
-       CASE WHEN OrderKey_ParentOrder IS NULL THEN OrderKey_AnyOrder ELSE OrderKey_ParentOrder END AS OrderKey_ParentOrder,
-       CASE WHEN OrderKey_ChildOrder IS NULL THEN 1 ELSE 0 END AS RootIndicator       
-INTO #Temp4_OrderKey
-FROM #Temp2_AnyOrderWithKey
-  LEFT JOIN #Temp3_ChildOrderWithKey 
-   ON OrderKey_AnyOrder = OrderKey_ChildOrder
-;
+SELECT #Temp2_SplitOrderWithKey.* ,
+       CASE WHEN Key_ParentOrder IS NULL THEN Key_SplitOrder ELSE Key_ParentOrder END AS Key_ParentOrder,
+       CASE WHEN Key_ChildOrder IS NULL THEN 1 ELSE 0 END AS RootIndicator       
+INTO #Temp4_OrderWithRootIndicator
+FROM #Temp2_SplitOrderWithKey
+  LEFT JOIN #Temp3_RefOrderWithKey 
+   ON Key_SplitOrder = Key_ChildOrder
 
-/*4. CTE*/
-WITH CTE AS (
-SELECT SplitOrder,OrderDate, SalesAmount, CustomerID, OrderKey_AnyOrder,OrderKey_ParentOrder,
-	   OrderKey_AnyOrder AS OrderKey_RootOrder
-FROM #Temp4_OrderKey
+/*4. Find root order number for every split order*/
+IF OBJECT_ID ('tempdb..#Temp5_CTE ') IS NOT NULL
+DROP TABLE #Temp5_CTE 
+
+; WITH CTE AS (
+SELECT SplitOrder,OrderDate, SalesAmount, CustomerID, Key_SplitOrder,Key_ParentOrder,
+	   Key_SplitOrder AS Key_RootOrder
+FROM #Temp4_OrderWithRootIndicator
 WHERE RootIndicator = 1
 
 UNION ALL
 
-SELECT #Temp4_OrderKey.SplitOrder,
-       #Temp4_OrderKey.OrderDate,
-	   #Temp4_OrderKey.SalesAmount,
-	   #Temp4_OrderKey.CustomerID,
-	   #Temp4_OrderKey.OrderKey_AnyOrder,
-	   #Temp4_OrderKey.OrderKey_ParentOrder,
-	   CTE.OrderKey_RootOrder
-FROM #Temp4_OrderKey 
+SELECT #Temp4_OrderWithRootIndicator.SplitOrder,
+       #Temp4_OrderWithRootIndicator.OrderDate,
+	   #Temp4_OrderWithRootIndicator.SalesAmount,
+	   #Temp4_OrderWithRootIndicator.CustomerID,
+	   #Temp4_OrderWithRootIndicator.Key_SplitOrder,
+	   #Temp4_OrderWithRootIndicator.Key_ParentOrder,
+	   CTE.Key_RootOrder
+FROM #Temp4_OrderWithRootIndicator 
   INNER JOIN CTE 
-   ON #Temp4_OrderKey.OrderKey_ParentOrder = CTE.OrderKey_AnyOrder
-WHERE #Temp4_OrderKey.OrderKey_AnyOrder <> #Temp4_OrderKey.OrderKey_ParentOrder
+   ON #Temp4_OrderWithRootIndicator.Key_ParentOrder = CTE.Key_SplitOrder
+WHERE #Temp4_OrderWithRootIndicator.Key_SplitOrder <> #Temp4_OrderWithRootIndicator.Key_ParentOrder
 )
 
 SELECT *
 INTO #Temp5_CTE 
 FROM CTE
 
+/*5. Sales at root order level */
+IF OBJECT_ID ('tempdb..#Temp6_RootLevel')IS NOT NULL
+DROP TABLE #Temp6_RootLevel
 
 SELECT CustomerID,
-       OrderKey_RootOrder, 
+       Key_RootOrder, 
        SUM(SalesAmount) AS RootOrderSales,
-	   (SELECT Temp6_CTE.OrderDate FROM #Temp5_CTE AS Temp6_CTE
-	    WHERE Temp6_CTE.OrderKey_AnyOrder = #Temp5_CTE.OrderKey_RootOrder
+	   (SELECT C1.OrderDate FROM #Temp5_CTE AS C1
+	    WHERE C1.Key_SplitOrder = #Temp5_CTE.Key_RootOrder
 	    ) AS RootOrderDate  
 INTO #Temp6_RootLevel
 FROM #Temp5_CTE 
-GROUP BY OrderKey_RootOrder,CustomerID
+GROUP BY Key_RootOrder,CustomerID
 
-SELECT * ,
-       ROW_NUMBER() OVER (PARTITION BY CustomerID ORDER BY RootOrderDate ASC) AS OrderRank
-INTO #Temp7_OrderRank
-FROM #Temp6_RootLevel
+/*6. Find the first root order of the customers*/
 
-
-SELECT * 
-FROM #Temp7_OrderRank
+SELECT CustomerID, LEFT(Key_RootOrder,6) AS RootOrder, RootOrderSales, RootOrderDate
+FROM   
+      (SELECT * ,
+              ROW_NUMBER() OVER (PARTITION BY CustomerID ORDER BY RootOrderDate ASC) AS OrderRank
+       FROM #Temp6_RootLevel) AS R1
 WHERE OrderRank = 1
 
 
@@ -105,5 +123,4 @@ GO
 
 EXEC spFirstRootOrder 
   @SalesPerson='Ann'
-
 
