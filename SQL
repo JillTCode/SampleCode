@@ -1,10 +1,10 @@
-/*The purpose of this stored procedure is to find the first root orders of all the customers that currently belong to a specific sales person.
+/*The purpose of this stored procedure is to find the first root orders(pre-split orders) of all the customers that currently belong to a specific sales person.
 
   The challenge is an order number could be reused every 6 months, there is no unique identifier for an order,
   and the order information in the database are at split orders level.
 
   The solution is to create an uniuqe key for an order by combining order number and order date, 
-  and use recursive CTE to identify orders' parent/child relationship and combine split orders into presplit order. */
+  and use recursive CTE to identify orders' parent/child relationship and combine split orders into pre-split order. */
 
 
 USE SampleCode;
